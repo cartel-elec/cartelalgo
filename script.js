@@ -186,7 +186,6 @@
 
       let valid = true;
 
-      // Reset previous errors
       contactForm.querySelectorAll('.error-msg').forEach(function (el) {
         el.remove();
       });
@@ -217,14 +216,17 @@
 
       if (!valid) return;
 
-      // Render backend URL
       const API_URL = 'https://cartel-backend-wl4v.onrender.com/api/quote';
-
       const originalText = submitBtn ? submitBtn.innerHTML : '';
+
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending…';
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending… (may take up to 60s)';
       }
+
+      // Abort after 90 seconds (free Render cold start can be slow)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(function () { controller.abort(); }, 90000);
 
       fetch(API_URL, {
         method: 'POST',
@@ -235,15 +237,17 @@
           phone: phone ? phone.value.trim() : '',
           subject: subject.value,
           message: message.value.trim()
-        })
+        }),
+        signal: controller.signal
       })
         .then(function (res) {
           return res.json().then(function (data) {
-            return { ok: res.ok, data: data };
+            return { ok: res.ok, status: res.status, data: data };
           });
         })
         .then(function (result) {
-          if (result.ok && result.data.success) {
+          clearTimeout(timeoutId);
+          if (result.ok && result.data && result.data.success) {
             contactForm.style.display = 'none';
             if (successMsg) {
               successMsg.hidden = false;
@@ -251,20 +255,27 @@
               const p = successMsg.querySelector('p');
               if (p) {
                 p.textContent = result.data.message ||
-                  'Thank you! Your quote request has been received. We will contact you soon. A confirmation email has also been sent to you.';
+                  'Thank you! Your quote request has been received. We will contact you soon.';
               }
             }
             contactForm.reset();
           } else {
-            alert((result.data && result.data.error) || 'Something went wrong. Please try again or call us: +250 788 725 620');
+            const errMsg = (result.data && result.data.error) ||
+              'Something went wrong. Please try again or call +250 788 725 620';
+            alert(errMsg);
             if (submitBtn) {
               submitBtn.disabled = false;
               submitBtn.innerHTML = originalText;
             }
           }
         })
-        .catch(function () {
-          alert('Could not reach the server. Please try again later or contact us by phone/email.');
+        .catch(function (err) {
+          clearTimeout(timeoutId);
+          if (err && err.name === 'AbortError') {
+            alert('The server is taking too long to respond (free hosting wake-up). Please wait 1 minute and try again, or call +250 788 725 620');
+          } else {
+            alert('Could not reach the server. Please wait 30 seconds and try again (server may be waking up), or contact us by phone/email.');
+          }
           if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalText;
@@ -272,7 +283,6 @@
         });
     });
 
-    // Clear error styling on input
     contactForm.querySelectorAll('input, textarea, select').forEach(function (field) {
       field.addEventListener('input', function () {
         field.style.borderColor = '';
